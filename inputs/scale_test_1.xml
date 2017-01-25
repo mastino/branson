@@ -2,17 +2,17 @@
   <common>
     <method>IMC</method>
     <t_start>0.0</t_start>
-    <t_stop>0.010</t_stop>
+    <t_stop>0.0010</t_stop>
     <dt_start>0.001</dt_start>
     <t_mult>1.0</t_mult>
     <dt_max>1.0</dt_max>
-    <photons>102400001</photons>
+    <photons>1000000</photons>
     <seed>14706</seed>
     <map_size>50000</map_size>
     <tilt>FALSE</tilt>
     <stratified_sampling>FALSE</stratified_sampling>
-    <dd_transport_type>CELL_PASS_RMA</dd_transport_type>
-    <completion_routine>RMA</completion_routine>
+    <dd_transport_type>PARTICLE_PASS</dd_transport_type>
+    <completion_routine>MILAGRO</completion_routine>
     <grip_size>100</grip_size>
     <map_size>10000</map_size>
     <batch_size>10000</batch_size>

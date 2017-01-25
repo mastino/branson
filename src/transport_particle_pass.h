@@ -17,7 +17,7 @@
 #include <iostream>
 #include <numeric>
 #include <queue>
-#include <unordered_map>
+#include <map>
 #include <stack>
 #include <vector>
 
@@ -34,26 +34,28 @@
 #include "RNG.h"
 
 void tally_photon_events(Photon &photon,
-  std::unordered_map<uint32_t, uint32_t>& scatter_counts,
-  std::unordered_map<uint32_t, uint32_t>& cross_counts) {
+  std::map<uint32_t, uint32_t>& scatter_counts,
+  std::map<uint32_t, uint32_t>& cross_counts) {
   // tally scatter events
   uint32_t n_scatter = photon.get_n_scatter();
-  if (scatter_counts.find(n_scatter) != scatter_counts.end())
+  if (scatter_counts.find(n_scatter) == scatter_counts.end())
+    scatter_counts[n_scatter] = 1;
+  else
     scatter_counts[n_scatter]++;
-  else scatter_counts[n_scatter] = 1;
 
   // tally crossing events
   uint32_t n_cross = photon.get_n_cross();
-  if (cross_counts.find(n_cross) != cross_counts.end())
+  if (cross_counts.find(n_cross) == cross_counts.end())
+    cross_counts[n_cross] = 1;
+  else
     cross_counts[n_cross]++;
-  else cross_counts[n_cross] = 1;
 }
 
 Constants::event_type transport_photon_particle_pass( Photon& phtn, Mesh* mesh,
     RNG* rng, double& next_dt, double& exit_E, double& census_E,
     std::vector<double>& rank_abs_E,
-    std::unordered_map<uint32_t, uint32_t>& scatter_counts,
-    std::unordered_map<uint32_t, uint32_t>& cross_counts)
+    std::map<uint32_t, uint32_t>& scatter_counts,
+    std::map<uint32_t, uint32_t>& cross_counts)
 {
   using Constants::VACUUM; using Constants::REFLECT;
   using Constants::ELEMENT; using Constants::PROCESSOR;
@@ -149,11 +151,11 @@ Constants::event_type transport_photon_particle_pass( Photon& phtn, Mesh* mesh,
       }
       // EVENT TYPE: REACH CENSUS
       else if(dist_to_event == dist_to_census) {
+        tally_photon_events(phtn, scatter_counts, cross_counts);
         phtn.set_distance_to_census(c*next_dt);
         active=false;
         event=CENSUS;
         census_E+=phtn.get_E();
-        tally_photon_events(phtn, scatter_counts, cross_counts);
       }
     } // end event loop
   } // end while alive
@@ -178,7 +180,7 @@ std::vector<Photon> transport_particle_pass(Source& source,
   using std::queue;
   using std::vector;
   using std::stack;
-  using std::unordered_map;
+  using std::map;
   using Constants::count_tag;
   using std::cout;
   using std::endl;
@@ -188,8 +190,8 @@ std::vector<Photon> transport_particle_pass(Source& source,
   double next_dt = imc_state->get_next_dt(); //! Set for census photons
   double dt = imc_state->get_next_dt(); //! For making current photons
 
-  unordered_map<uint32_t, uint32_t> scatter_counts;
-  unordered_map<uint32_t, uint32_t> cross_counts;
+  map<uint32_t, uint32_t> scatter_counts;
+  map<uint32_t, uint32_t> cross_counts;
 
   RNG *rng = imc_state->get_rng();
 
@@ -201,6 +203,7 @@ std::vector<Photon> transport_particle_pass(Source& source,
   // batch statistics
   uint32_t ibatch = 0;
   uint32_t n_batch = 0;
+  vector<uint32_t> batch_count;
 
   // Number of particles to run between MPI communication
   const uint32_t batch_size = imc_parameters->get_batch_size();
@@ -326,7 +329,7 @@ std::vector<Photon> transport_particle_pass(Source& source,
       if (from_receive_stack) phtn_recv_stack.pop();
     }
     ibatch++;
-    cout<<"batch rank_"<<mpi_info.get_rank()<<" "<<ibatch<<" "<<n_batch<<endl;
+    batch_count.push_back(n_batch);
     n_batch=0;
 
     //------------------------------------------------------------------------//
@@ -433,7 +436,7 @@ std::vector<Photon> transport_particle_pass(Source& source,
     vector<Photon> one_photon(1);
     uint32_t i_b; // buffer index
     int adj_rank; // adjacent rank
-    for ( std::unordered_map<uint32_t, uint32_t>::iterator it=adjacent_procs.begin();
+    for ( auto it=adjacent_procs.begin();
       it != adjacent_procs.end(); ++it) {
       adj_rank = it->first;
       i_b = it->second;
@@ -473,11 +476,39 @@ std::vector<Photon> transport_particle_pass(Source& source,
     t_transport.get_time("timestep transport"));
   imc_state->set_rank_mpi_time(t_mpi.get_time("timestep mpi"));
 
+  cout.flush();
+  // print batch counts
+  for (uint32_t r=0; r<mpi_info.get_n_rank();++r) {
+    if (mpi_info.get_rank() == r)
+      for (uint32_t i=0; i<batch_count.size();++i) {
+        cout<<"batch rank_"<<mpi_info.get_rank()<<" "<<i<<" "<<
+          batch_count[i]<<endl;
+      }
+    usleep(100);
+    cout.flush();
+    MPI_Barrier(MPI_COMM_WORLD);
+    cout.flush();
+    MPI_Barrier(MPI_COMM_WORLD);
+  }
+
+  cout.flush();
+  MPI_Barrier(MPI_COMM_WORLD);
+
   // get number of scatters and crossings
-  for (auto it=cross_counts.begin(); it!=cross_counts.end();++it)
-    cout<<"cross rank_"<<mpi_info.get_rank()<<" "<<it->first<<" "<<it->second<<endl;
-  for (auto it=scatter_counts.begin(); it!=scatter_counts.end();++it)
-    cout<<"scatter rank_"<<mpi_info.get_rank()<<" "<<it->first<<" "<<it->second<<endl;
+  double cross_fraction = 0.0;
+  for (auto it=cross_counts.begin(); it!=cross_counts.end();++it) {
+    cout<<"cross rank_"<<mpi_info.get_rank()<<" "<<it->first<<" "
+      <<double(it->second)/n_local<<endl;
+    cross_fraction +=double(it->second)/n_local;
+  }
+  cout<<"cross fraction: "<<cross_fraction<<endl;
+  double scatter_fraction = 0.0;
+  for (auto it=scatter_counts.begin(); it!=scatter_counts.end();++it) {
+    cout<<"scatter rank_"<<mpi_info.get_rank()<<" "<<it->first<<" "
+      <<double(it->second)/n_local<<endl;
+    scatter_fraction +=double(it->second)/n_local;
+  }
+  cout<<"scatter fraction: "<<scatter_fraction<<endl;
 
   return census_list;
 }
