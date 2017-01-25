@@ -33,14 +33,27 @@
 #include "sampling_functions.h"
 #include "RNG.h"
 
-Constants::event_type
-  transport_photon_particle_pass( Photon& phtn,
-                                  Mesh* mesh,
-                                  RNG* rng,
-                                  double& next_dt,
-                                  double& exit_E,
-                                  double& census_E,
-                                  std::vector<double>& rank_abs_E)
+void tally_photon_events(Photon &photon,
+  std::unordered_map<uint32_t, uint32_t>& scatter_counts,
+  std::unordered_map<uint32_t, uint32_t>& cross_counts) {
+  // tally scatter events
+  uint32_t n_scatter = photon.get_n_scatter();
+  if (scatter_counts.find(n_scatter) != scatter_counts.end())
+    scatter_counts[n_scatter]++;
+  else scatter_counts[n_scatter] = 1;
+
+  // tally crossing events
+  uint32_t n_cross = photon.get_n_cross();
+  if (cross_counts.find(n_cross) != cross_counts.end())
+    cross_counts[n_cross]++;
+  else cross_counts[n_cross] = 1;
+}
+
+Constants::event_type transport_photon_particle_pass( Photon& phtn, Mesh* mesh,
+    RNG* rng, double& next_dt, double& exit_E, double& census_E,
+    std::vector<double>& rank_abs_E,
+    std::unordered_map<uint32_t, uint32_t>& scatter_counts,
+    std::unordered_map<uint32_t, uint32_t>& cross_counts)
 {
   using Constants::VACUUM; using Constants::REFLECT;
   using Constants::ELEMENT; using Constants::PROCESSOR;
@@ -97,6 +110,7 @@ Constants::event_type
     if (phtn.below_cutoff(cutoff_fraction)) {
       rank_abs_E[cell_id] += phtn.get_E();
       active=false;
+      tally_photon_events(phtn, scatter_counts, cross_counts);
       event=KILL;
     }
     // or apply event
@@ -104,12 +118,14 @@ Constants::event_type
       // apply event
       // EVENT TYPE: SCATTER
       if(dist_to_event == dist_to_scatter) {
+        phtn.increment_scatter();
         get_uniform_angle(angle, rng);
         phtn.set_angle(angle);
       }
       // EVENT TYPE: BOUNDARY CROSS
       else if(dist_to_event == dist_to_boundary) {
         boundary_event = cell.get_bc(surface_cross);
+        phtn.increment_cross();
         if(boundary_event == ELEMENT ) {
           next_cell = cell.get_next_cell(surface_cross);
           phtn.set_cell(next_cell);
@@ -127,6 +143,7 @@ Constants::event_type
           exit_E+=phtn.get_E();
           active=false;
           event = EXIT;
+          tally_photon_events(phtn, scatter_counts, cross_counts);
         }
         else phtn.reflect(surface_cross);
       }
@@ -136,13 +153,12 @@ Constants::event_type
         active=false;
         event=CENSUS;
         census_E+=phtn.get_E();
+        tally_photon_events(phtn, scatter_counts, cross_counts);
       }
     } // end event loop
   } // end while alive
   return event;
 }
-
-
 
 std::vector<Photon> transport_particle_pass(Source& source,
                                             Mesh* mesh,
@@ -172,12 +188,19 @@ std::vector<Photon> transport_particle_pass(Source& source,
   double next_dt = imc_state->get_next_dt(); //! Set for census photons
   double dt = imc_state->get_next_dt(); //! For making current photons
 
+  unordered_map<uint32_t, uint32_t> scatter_counts;
+  unordered_map<uint32_t, uint32_t> cross_counts;
+
   RNG *rng = imc_state->get_rng();
 
   // timing
   Timer t_transport;
   Timer t_mpi;
   t_transport.start_timer("timestep transport");
+
+  // batch statistics
+  uint32_t ibatch = 0;
+  uint32_t n_batch = 0;
 
   // Number of particles to run between MPI communication
   const uint32_t batch_size = imc_parameters->get_batch_size();
@@ -257,6 +280,7 @@ std::vector<Photon> transport_particle_pass(Source& source,
   while (!finished) {
 
     uint32_t n = batch_size;
+    n_batch = 0;
 
     //------------------------------------------------------------------------//
     // Transport photons from source and received list
@@ -275,7 +299,8 @@ std::vector<Photon> transport_particle_pass(Source& source,
       }
 
       event = transport_photon_particle_pass(phtn, mesh, rng, next_dt, exit_E,
-                                            census_E, rank_abs_E);
+        census_E, rank_abs_E, scatter_counts, cross_counts);
+
       switch(event) {
         // this case should never be reached
         case WAIT:
@@ -297,8 +322,12 @@ std::vector<Photon> transport_particle_pass(Source& source,
           break;
       }
       n--;
+      n_batch++;
       if (from_receive_stack) phtn_recv_stack.pop();
     }
+    ibatch++;
+    cout<<"batch rank_"<<mpi_info.get_rank()<<" "<<ibatch<<" "<<n_batch<<endl;
+    n_batch=0;
 
     //------------------------------------------------------------------------//
     // process photon send and receives
@@ -336,12 +365,8 @@ std::vector<Photon> transport_particle_pass(Source& source,
           vector<Photon> send_now_list(copy_start, copy_end);
           send_list[i_b].erase(copy_start,copy_end);
           phtn_send_buffer[i_b].fill(send_now_list);
-          MPI_Isend(phtn_send_buffer[i_b].get_buffer(),
-            n_photons_to_send,
-            MPI_Particle,
-            adj_rank,
-            photon_tag,
-            MPI_COMM_WORLD,
+          MPI_Isend(phtn_send_buffer[i_b].get_buffer(), n_photons_to_send,
+            MPI_Particle, adj_rank, photon_tag, MPI_COMM_WORLD,
             &phtn_send_request[i_b]);
           phtn_send_buffer[i_b].set_sent();
           // update counters
@@ -447,6 +472,12 @@ std::vector<Photon> transport_particle_pass(Source& source,
   imc_state->set_rank_transport_runtime(
     t_transport.get_time("timestep transport"));
   imc_state->set_rank_mpi_time(t_mpi.get_time("timestep mpi"));
+
+  // get number of scatters and crossings
+  for (auto it=cross_counts.begin(); it!=cross_counts.end();++it)
+    cout<<"cross rank_"<<mpi_info.get_rank()<<" "<<it->first<<" "<<it->second<<endl;
+  for (auto it=scatter_counts.begin(); it!=scatter_counts.end();++it)
+    cout<<"scatter rank_"<<mpi_info.get_rank()<<" "<<it->first<<" "<<it->second<<endl;
 
   return census_list;
 }
