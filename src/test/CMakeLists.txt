@@ -5,7 +5,7 @@ cmake_minimum_required (VERSION 2.8)
 # Set OpenMPI compiler
 #set(CMAKE_CXX_COMPILER mpic++)
 
-if ("${SITENAME}" STREQUAL "Moonlight" OR ${SITENAME} MATCHES "ccscs[0-9]+")
+if ("${SITENAME}" STREQUAL "Moonlight" OR ${SITENAME} MATCHES "ccscs[0-9]+" OR ${SITENAME} MATCHES "Snow" )
   set(MPI_EXEC mpirun)
 elseif (${SITENAME} STREQUAL "Trinitite")
   set(MPI_EXEC aprun)
@@ -16,6 +16,10 @@ include_directories($ENV{METIS_INC_DIR})
 link_directories($ENV{PARMETIS_LIB_DIR})
 link_directories($ENV{SILO_ROOT}/lib)
 link_directories($ENV{HDF5_ROOT}/lib)
+
+# RNG class test
+add_executable(test_counter_rng_exe test_counter_rng.cc)
+add_test(NAME test_counter_rng COMMAND ${MPI_EXEC} -n 1 ./test_counter_rng_exe)
 
 # Cell class test
 add_executable(test_cell_exe test_cell.cc)

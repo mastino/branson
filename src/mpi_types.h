@@ -1,12 +1,13 @@
-//----------------------------------*-C++-*----------------------------------//
+//----------------------------------*-C++-*-----------------------------------//
 /*!
  * \file   mpi_types.h
  * \author Alex Long
  * \date   May 12 2016
  * \brief  Creates and provides access to custom MPI dataypes
- * \note   ***COPYRIGHT_GOES_HERE****
+ * \note   Copyright (C) 2017 Los Alamos National Security, LLC.
+ *         All rights reserved
  */
-//---------------------------------------------------------------------------//
+//----------------------------------------------------------------------------//
 
 #ifndef mpi_types_h_
 #define mpi_types_h_
@@ -35,11 +36,11 @@ class MPI_Types
 
       // remake the MPI cell datatype from mesh
       const int cell_entry_count = 3 ;
-      // 7 uint32_t, 6 int, 13 double
+      // 16 uint32_t, 6 int, 14 double
       int cell_array_of_block_length[4] = {16, 6, 14};
       // Displacements of each type in the cell
       MPI_Aint cell_array_of_block_displace[3] =
-        {0, 16*sizeof(uint32_t),  16*sizeof(uint32_t)+6*sizeof(int)};
+        {0, 16*sizeof(uint32_t),  16*sizeof(int32_t)+6*sizeof(int)};
       //Type of each memory block
       MPI_Datatype cell_array_of_types[3] = {MPI_UNSIGNED, MPI_INT, MPI_DOUBLE};
 
@@ -88,7 +89,7 @@ class MPI_Types
 
     // make and commit the MPI tally type
     {
-      // make the Work Packet
+      // make the Tally object
       const int tally_entry_count = 2;
 
       // 1 uint32_t, 1 double
@@ -176,17 +177,17 @@ class MPI_Types
   // member data                                                              //
   //--------------------------------------------------------------------------//
   private:
-  MPI_Datatype MPI_Particle; //! Custom MPI datatype for particles
-  MPI_Datatype MPI_Cell; //! Custom MPI datatype for mesh cell
-  MPI_Datatype MPI_Tally; //! Custom MPI datatype for tally
-  MPI_Datatype MPI_Work_Packet; //! Custom MPI datatype for work packet
-  int mpi_cell_size; //! Size of MPI_Cell datatype
-  int mpi_particle_size; //! Size of MPI_Particle datatype
-  int mpi_tally_size; //! Size of MPI_Tally datatype
-  int mpi_work_packet_size; //! Size of MPI_Work_Packet datatype
+  MPI_Datatype MPI_Particle; //!< Custom MPI datatype for particles
+  MPI_Datatype MPI_Cell; //!< Custom MPI datatype for mesh cell
+  MPI_Datatype MPI_Tally; //!< Custom MPI datatype for tally
+  MPI_Datatype MPI_Work_Packet; //!< Custom MPI datatype for work packet
+  int mpi_cell_size; //!< Size of MPI_Cell datatype
+  int mpi_particle_size; //!< Size of MPI_Particle datatype
+  int mpi_tally_size; //!< Size of MPI_Tally datatype
+  int mpi_work_packet_size; //!< Size of MPI_Work_Packet datatype
 };
 
 #endif // mpi_types_h_
-//---------------------------------------------------------------------------//
+//----------------------------------------------------------------------------//
 // end of mpi_types.h
-//---------------------------------------------------------------------------//
+//----------------------------------------------------------------------------//

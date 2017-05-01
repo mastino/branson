@@ -4,7 +4,8 @@
  * \author Alex Long
  * \date   August 10, 2016
  * \brief  Manages two-sided requests for remote mesh data
- * \note   ***COPYRIGHT_GOES_HERE****
+ * \note   Copyright (C) 2017 Los Alamos National Security, LLC.
+ *         All rights reserved
  */
 //----------------------------------------------------------------------------//
 
@@ -260,11 +261,10 @@ class Mesh_Request_Manager
     // can't erase from a set while iterating over it, use this
     std::unordered_set<uint32_t> ranks_to_erase;
 
-    for (auto irank=ranks_to_recv.begin();
-      irank!=ranks_to_recv.end();++irank)
+    for (auto const &irank : ranks_to_recv)
     {
       if (s_id_in_use.size() < max_reqs && r_cell_in_use.size() < max_reqs) {
-        off_rank = *irank;
+        off_rank = irank;
         auto rank_range = s_rank_to_ids.equal_range(off_rank);
         std::vector<uint32_t> send_ids;
         for (auto it=rank_range.first; it!=rank_range.second; ++it)
@@ -300,10 +300,9 @@ class Mesh_Request_Manager
     } // end for off_rank in ranks_to_recv
 
     // delete the ranks that were requested from the set
-    for (auto irank=ranks_to_erase.begin();
-      irank!=ranks_to_erase.end();++irank)
+    for (auto const &irank : ranks_to_erase)
     {
-      ranks_to_recv.erase(*irank);
+      ranks_to_recv.erase(irank);
     }
   }
 

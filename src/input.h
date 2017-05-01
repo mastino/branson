@@ -4,7 +4,8 @@
  * \author Alex Long
  * \date   July 18 2014
  * \brief  Reads data from XML input file and makes mesh skeleton
- * \note   ***COPYRIGHT_GOES_HERE****
+ * \note   Copyright (C) 2017 Los Alamos National Security, LLC.
+ *         All rights reserved
  */
 //---------------------------------------------------------------------------//
 
@@ -38,6 +39,8 @@
 class Input
 {
   public:
+
+  //! Constructor
   Input( std::string fileName)
     : using_simple_mesh(false),
       using_detailed_mesh(false)
@@ -46,9 +49,9 @@ class Input
     using Constants::VACUUM; using Constants::REFLECT; using Constants::ELEMENT;
     using Constants::X_POS;  using Constants::Y_POS; using Constants::Z_POS;
     using Constants::X_NEG;  using Constants::Y_NEG; using Constants::Z_NEG;
-    using Constants::PARTICLE_PASS;
-    using Constants::CELL_PASS;
-    using Constants::CELL_PASS_RMA;
+    // DD methods
+    using Constants::PARTICLE_PASS; using Constants::CELL_PASS;
+    using Constants::CELL_PASS_RMA; using Constants::REPLICATED;
     using Constants::RMA_COMPLETION;
     using Constants::MILAGRO_COMPLETION;
     using std::cout;
@@ -131,6 +134,7 @@ class Input
         if (tempString == "CELL_PASS") dd_mode = CELL_PASS;
         else if (tempString == "CELL_PASS_RMA") dd_mode = CELL_PASS_RMA;
         else if (tempString == "PARTICLE_PASS") dd_mode = PARTICLE_PASS;
+        else if (tempString == "REPLICATED") dd_mode = REPLICATED;
         else {
           cout<<"WARNING: Domain decomposition method not recognized... ";
           cout<<"setting to PARTICLE PASSING method"<<endl;
@@ -166,7 +170,7 @@ class Input
             n_x_cells.push_back(d_x_cells);
             nx_divisions++;
             // push back the master x points for silo
-            for (uint32_t i=0;i<d_x_cells;i++)
+            for (uint32_t i=0;i<d_x_cells;++i)
               x.push_back(d_x_start+i*(d_x_end-d_x_start)/d_x_cells);
           }
 
@@ -180,7 +184,7 @@ class Input
             n_y_cells.push_back(d_y_cells);
             ny_divisions++;
             // push back the master y points for silo
-            for (uint32_t i=0;i<d_y_cells;i++)
+            for (uint32_t i=0;i<d_y_cells;++i)
               y.push_back(d_y_start+i*(d_y_end-d_y_start)/d_y_cells);
           }
 
@@ -194,7 +198,7 @@ class Input
             n_z_cells.push_back(d_z_cells);
             nz_divisions++;
             // push back the master z points for silo
-            for (uint32_t i=0;i<d_z_cells;i++)
+            for (uint32_t i=0;i<d_z_cells;++i)
               z.push_back(d_z_start+i*(d_z_end-d_z_start)/d_z_cells);
           }
 
@@ -232,11 +236,11 @@ class Input
         region_ID = (v.second.get<uint32_t>("region_ID",0));
 
         // add spatial information to SILO information
-        for (uint32_t i=0;i<n_x_cells[0];i++)
+        for (uint32_t i=0;i<n_x_cells[0];++i)
           x.push_back(x_start[0]+i*(x_end[0]-x_start[0])/n_x_cells[0]);
-        for (uint32_t i=0;i<n_y_cells[0];i++)
+        for (uint32_t i=0;i<n_y_cells[0];++i)
           y.push_back(y_start[0]+i*(y_end[0]-y_start[0])/n_y_cells[0]);
-        for (uint32_t i=0;i<n_z_cells[0];i++)
+        for (uint32_t i=0;i<n_z_cells[0];++i)
           z.push_back(z_start[0]+i*(z_end[0]-z_start[0])/n_z_cells[0]);
 
         // map zero key to region_ID
@@ -362,25 +366,32 @@ class Input
     silo_x = new float[x.size()];
     silo_y = new float[y.size()];
     silo_z = new float[z.size()];
-    for (uint32_t i=0;i<x.size();i++) silo_x[i] = x[i];
-    for (uint32_t j=0;j<y.size();j++) silo_y[j] = y[j];
-    for (uint32_t k=0;k<z.size();k++) silo_z[k] = z[k];
+    for (uint32_t i=0;i<x.size();++i) silo_x[i] = x[i];
+    for (uint32_t j=0;j<y.size();++j) silo_y[j] = y[j];
+    for (uint32_t k=0;k<z.size();++k) silo_z[k] = z[k];
+
+    // batch size should be very large in replicated mode since there is no
+    // need to check buffers
+    if (dd_mode == REPLICATED)
+      batch_size = 100000000;
   }
 
+  //! Destructor
   ~Input() {
     delete[] silo_x;
     delete[] silo_y;
     delete[] silo_z;
   };
 
+  //! Print the information read from the input file
   void print_problem_info(void) const {
     using Constants::a;
     using Constants::c;
     using std::cout;
     using std::endl;
-    using Constants::PARTICLE_PASS;
-    using Constants::CELL_PASS;
-    using Constants::CELL_PASS_RMA;
+    // DD methods
+    using Constants::PARTICLE_PASS; using Constants::CELL_PASS;
+    using Constants::CELL_PASS_RMA; using Constants::REPLICATED;
     using Constants::RMA_COMPLETION;
     using Constants::MILAGRO_COMPLETION;
 
@@ -423,7 +434,7 @@ class Input
     }
 
     cout<<"--Material Information--"<<endl;
-    for(uint32_t r=0; r<regions.size();r++) {
+    for(uint32_t r=0; r<regions.size();++r) {
       cout<<" heat capacity: "<<regions[r].get_cV();
       cout<<" opacity constants: "<<regions[r].get_opac_A()
         <<" + "<<regions[r].get_opac_B()<<"^"<<regions[r].get_opac_C();
@@ -451,6 +462,11 @@ class Input
       cout<<"PARTICLE PASSING"<<endl;
       cout<<"Batch size: "<<batch_size;
       cout<<", particle message size: "<<particle_message_size;
+      cout<<endl;
+    }
+    else if (dd_mode == REPLICATED) {
+      cout<<"REPLICATED"<<endl;
+      cout<<"No parameters are needed in replicated mode";
       cout<<endl;
     }
     else {
@@ -481,80 +497,125 @@ class Input
     cout<<endl;
   }
 
+  //! Return the number of global cells in the x direction
   uint32_t get_global_n_x_cells(void) const {return n_global_x_cells;}
+  //! Return the number of global cells in the y direction
   uint32_t get_global_n_y_cells(void) const {return n_global_y_cells;}
+  //! Return the number of global cells in the z direction
   uint32_t get_global_n_z_cells(void) const {return n_global_z_cells;}
 
+  //! Return the number of x cells in a given x division
   uint32_t get_x_division_cells(const uint32_t& div) const {
     return n_x_cells[div];
   }
+  //! Return the number of y cells in a given y division
   uint32_t get_y_division_cells(const uint32_t& div) const {
     return n_y_cells[div];
   }
+  //! Return the number of z cells in a given z division
   uint32_t get_z_division_cells(const uint32_t& div) const {
     return n_z_cells[div];
   }
 
+  //! Return a pointer to the x coordinates of the mesh in SILO format
   float* get_silo_x_ptr(void) {return silo_x;}
+  //! Return a pointer to the y coordinates of the mesh in SILO format
   float* get_silo_y_ptr(void) {return silo_y;}
+  //! Return a pointer to the z coordinates of the mesh in SILO format
   float* get_silo_z_ptr(void) {return silo_z;}
 
+  //! Return the total number of x divisions in the problem
   uint32_t get_n_x_divisions(void) const {return n_x_cells.size();}
+  //! Return the total number of y divisions in the problem
   uint32_t get_n_y_divisions(void) const {return n_y_cells.size();}
+  //! Return the total number of z divisions in the problem
   uint32_t get_n_z_divisions(void) const {return n_z_cells.size();}
 
+  //! Return the x grid spacing in a given x division
   double get_dx(const uint32_t& div) const {
     return (x_end[div] - x_start[div])/n_x_cells[div];
   }
+  //! Return the y grid spacing in a given y division
   double get_dy(const uint32_t& div) const {
     return (y_end[div] - y_start[div])/n_y_cells[div];
   }
+  //! Return the z grid spacing in a given z division
   double get_dz(const uint32_t& div) const {
     return (z_end[div] - z_start[div])/n_z_cells[div];
   }
 
+
+  //! Return the starting x position of a given x division
   double get_x_start(const uint32_t& div) const { return x_start[div];}
+  //! Return the starting y position of a given y division
   double get_y_start(const uint32_t& div) const { return y_start[div];}
+  //! Return the starting z position of a given z division
   double get_z_start(const uint32_t& div) const { return z_start[div];}
 
+  //! Return the value of the use tilt option
   bool get_tilt_bool(void) const {return use_tilt;}
-  bool get_comb_bool(void) const {return use_comb;}
+  //! Return the value of the use comb option
+  bool get_comb_bool(void) const {return use_comb;} 
+  //! Return the value of the stratified option
   bool get_stratified_bool(void) const {return use_strat;}
+  //! Return the value of the write SILO option
   bool get_write_silo_bool(void) const {return write_silo;}
-
+  //! Return the value of the verbose printing option
   bool get_verbose_print_bool(void) const {return print_verbose;}
+  //! Return the value of the mesh print option
   bool get_print_mesh_info_bool(void) const {return print_mesh_info;}
+  //! Return the frequency of timestep summary printing
   int get_output_freq(void) const {return output_freq;}
 
+  //! Return the timestep size (shakes)
   double get_dt(void) const {return dt;}
+  //! Return the starting time (shakes)
   double get_time_start(void) const {return tStart;}
+  //! Return the finish time (shakes)
   double get_time_finish(void) const {return tFinish;}
+  //! Return the multiplication factor for the timestep
   double get_time_mult(void) const {return tMult;}
+  //! Return the maximum timestep size (shakes)
   double get_dt_max(void) const {return dtMax;}
+  //! Return the input seed for the RNG
   int get_rng_seed(void) const {return seed;}
+  //! Return the number of photons set in the input file to run
   uint64_t get_number_photons(void) const {return n_photons;}
+  //! Return the completion algorithm type (MILAGRO or RMA)
   uint32_t get_completion_routine(void) const {return completion_routine;}
+  //! Return the batch size (particles to run between parallel processing)
   uint32_t get_batch_size(void) const {return batch_size;}
+  //! Return the user requested number of particles in a message
   uint32_t get_particle_message_size(void) const {return particle_message_size;}
+  //! Return the user requested grip size
   uint32_t get_grip_size(void) const {return grip_size;}
+  //! Return the size of the working mesh map
   uint32_t get_map_size(void) const {return map_size;}
+  //! Return the domain decomposition algorithm
   uint32_t get_dd_mode(void) const {return dd_mode;}
 
   //source functions
+  //! Return the temperature of the face source
   double get_source_T(void) const {return T_source;}
 
-  //material functions
-  uint32_t get_n_regions(void) {return regions.size();}
-  std::vector<Region> get_regions(void) {return regions;}
-  uint32_t get_region_index(const uint32_t& x_div, const uint32_t& y_div,
-    const uint32_t& z_div) {
-    // make a unique key using the division ID of x,y and z
-    // this mapping allows for 1000 unique divisions in
-    // each dimension (way too many)
-    uint32_t key = z_div*1000000 + y_div*1000 + x_div;
-    return  region_ID_to_index[region_map[key]];
+  //! Return the number of material regions
+  uint32_t get_n_regions(void) const {return regions.size();}
+
+  //! Return vector of regions
+  const std::vector<Region>& get_regions(void) const {return regions;} 
+
+  //! Return unique index given division indices
+
+  //! Make a unique key using the division ID of x,y and z. This mapping
+  //! allows for 1000 unique divisions in each dimension (way too many)
+  uint32_t get_region_index(const uint32_t x_div, const uint32_t y_div,
+    const uint32_t z_div) const
+  {
+    const uint32_t key = z_div*1000000 + y_div*1000 + x_div;
+    return  region_ID_to_index.at(region_map.at(key));
   }
 
+  //! Return boundary condition at this direction index
   Constants::bc_type get_bc(const Constants::dir_type& direction) const
   {
     return bc[direction];
@@ -563,68 +624,72 @@ class Input
   private:
 
   // flags
-  bool using_simple_mesh;
-  bool using_detailed_mesh;
-  bool write_silo;
+  bool using_simple_mesh; //!< Use the simple mesh specification
+  bool using_detailed_mesh; //!< Use the detailed mesh specification
+  bool write_silo; //!< Dump SILO output files
 
-  Constants::bc_type bc[6]; //! Boundary condition array
+  Constants::bc_type bc[6]; //!< Boundary condition array
 
   // timing
-  double tStart; //! Starting time
-  double dt; //! Timestep size
-  double tFinish; //! Finish time
-  double tMult; //! Timestep multiplier
-  double dtMax; //! Maximum timestep size
+  double tStart; //!< Starting time
+  double dt; //!< Timestep size
+  double tFinish; //!< Finish time
+  double tMult; //!< Timestep multiplier
+  double dtMax; //!< Maximum timestep size
 
   //material
-  std::vector<Region> regions;
+  std::vector<Region> regions; //!< Vector of regions in the problem
+
+  //! Maps unique key to user set ID for a region
   std::unordered_map<uint32_t, uint32_t> region_map;
+
+  //! Maps user set region ID to the index in the regions vector
   std::unordered_map<uint32_t, uint32_t> region_ID_to_index;
 
   //source
-  double T_source; //! Temperature of source
+  double T_source; //!< Temperature of source
 
   // Monte Carlo parameters
-  uint64_t n_photons; //! Photons to source each timestep
-  uint32_t seed; //! Random number seed
+  uint64_t n_photons; //!< Photons to source each timestep
+  uint32_t seed; //!< Random number seed
 
   // Method parameters
-  bool use_tilt; //! Use tilting for emission sampling
-  bool use_comb; //! Comb census photons
-  bool use_strat; //! Use strafifed sampling
-  uint32_t dd_mode; //! Mode of domain decomposed transport algorithm
-  uint32_t completion_routine; //! Method for handling transport completion
+  bool use_tilt; //!< Use tilting for emission sampling
+  bool use_comb; //!< Comb census photons
+  bool use_strat; //!< Use strafifed sampling
+  uint32_t dd_mode; //!< Mode of domain decomposed transport algorithm
+  uint32_t completion_routine; //!< Method for handling transport completion
 
   // Debug parameters
-  int output_freq; //! How often to print temperature information
-  bool print_verbose; //! Verbose printing flag
-  bool print_mesh_info; //! Mesh information printing flag
+  int output_freq; //!< How often to print temperature information
+  bool print_verbose; //!< Verbose printing flag
+  bool print_mesh_info; //!< Mesh information printing flag
 
   // parallel performance parameters
-  uint32_t grip_size; //! Preferred number of cells in a parallel communication
-  uint32_t map_size; //! Size of stored off-rank mesh cells
-  uint32_t batch_size; //! Particles to run between MPI message checks
-  uint32_t particle_message_size; //! Preferred number of particles in MPI sends
+  uint32_t grip_size; //!< Preferred number of cells in a parallel communication
+  uint32_t map_size; //!< Size of stored off-rank mesh cells
+  uint32_t batch_size; //!< Particles to run between MPI message checks
+  uint32_t particle_message_size; //!< Preferred number of particles in MPI sends
 
   // detailed mesh specifications
-  uint32_t n_divisions;
-  std::vector<double> x_start;
-  std::vector<double> x_end;
-  std::vector<double> y_start;
-  std::vector<double> y_end;
-  std::vector<double> z_start;
-  std::vector<double> z_end;
-  std::vector<uint32_t> n_x_cells;
-  std::vector<uint32_t> n_y_cells;
-  std::vector<uint32_t> n_z_cells;
-  uint32_t n_global_x_cells;
-  uint32_t n_global_y_cells;
-  uint32_t n_global_z_cells;
+  uint32_t n_divisions; //!< Number of divisions in the mesh
+  std::vector<double> x_start; //!< x starting positions for each division
+  std::vector<double> x_end; //!< x ending positions for each division
+  std::vector<double> y_start; //!< y starting positions for each division
+  std::vector<double> y_end; //!< y ending positions for each division
+  std::vector<double> z_start; //!< z starting positions for each division
+  std::vector<double> z_end; //!< z ending positions for each division
+  std::vector<uint32_t> n_x_cells; //!< Number of x cells in each division
+  std::vector<uint32_t> n_y_cells; //!< Number of y cells in each division
+  std::vector<uint32_t> n_z_cells; //!< Number of z cells in each division
+  uint32_t n_global_x_cells; //!< Total number of x cells over all divisions
+  uint32_t n_global_y_cells; //!< Total number of y cells over all divisions
+  uint32_t n_global_z_cells; //!< Total number of z cells over all divisions
 
   // arrays for silo
-  float *silo_x;
-  float *silo_y;
-  float *silo_z;
+  float *silo_x; //!< x positions for SILO arrays (i + nx*j + nx*ny*k)
+  float *silo_y; //!< y positions for SILO arrays (i + nx*j + nx*ny*k)
+  float *silo_z; //!< z positions for SILO arrays (i + nx*j + nx*ny*k)
 };
 
 #endif // input_h_

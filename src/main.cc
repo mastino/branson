@@ -4,7 +4,8 @@
  * \author Alex Long
  * \date   July 24 2014
  * \brief  Reads input file, sets up mesh and runs transport 
- * \note   ***COPYRIGHT_GOES_HERE****
+ * \note   Copyright (C) 2017 Los Alamos National Security, LLC.
+ *         All rights reserved
  */
 //---------------------------------------------------------------------------//
 
@@ -17,13 +18,16 @@
 
 #include "constants.h"
 #include "decompose_mesh.h"
-#include "imc_drivers.h"
 #include "imc_state.h"
 #include "imc_parameters.h"
-#include "input.h"
-#include "mesh.h"
 #include "info.h"
+#include "input.h"
+#include "mesh_pass_driver.h"
+#include "mesh.h"
 #include "mpi_types.h"
+#include "particle_pass_driver.h"
+#include "replicated_driver.h"
+#include "rma_mesh_pass_driver.h"
 #include "timer.h"
 
 using std::vector;
@@ -33,6 +37,7 @@ using std::string;
 using Constants::PARTICLE_PASS;
 using Constants::CELL_PASS;
 using Constants::CELL_PASS_RMA;
+using Constants::REPLICATED;
 
 int main(int argc, char **argv)
 {
@@ -46,6 +51,8 @@ int main(int argc, char **argv)
 
   // get MPI parmeters and set them in mpi_info
   const Info mpi_info;
+  if (mpi_info.get_rank()==0)
+    cout<<"Branson compiled on: "<<mpi_info.get_machine_name()<<endl;
 
   // make MPI types object
   MPI_Types* mpi_types= new MPI_Types();
@@ -70,7 +77,12 @@ int main(int argc, char **argv)
   // make mesh from input object and decompose mesh with ParMetis
   timers->start_timer("Total setup");
   Mesh *mesh = new Mesh(input, mpi_types, mpi_info);
-  decompose_mesh(mesh, mpi_types, mpi_info, imc_p->get_grip_size());
+  if (input->get_dd_mode() == REPLICATED) { 
+    replicate_mesh(mesh, mpi_types, mpi_info, imc_p->get_grip_size());
+  }
+  else {
+    decompose_mesh(mesh, mpi_types, mpi_info, imc_p->get_grip_size());
+  }
   timers->stop_timer("Total setup");
 
   MPI_Barrier(MPI_COMM_WORLD);
@@ -85,9 +97,13 @@ int main(int argc, char **argv)
   if (input->get_dd_mode() == PARTICLE_PASS)
     imc_particle_pass_driver(mesh, imc_state, imc_p, mpi_types, mpi_info);
   else if (input->get_dd_mode() == CELL_PASS)
-    imc_cell_pass_driver(mesh, imc_state, imc_p, mpi_types, mpi_info);
+    imc_mesh_pass_driver(mesh, imc_state, imc_p, mpi_types, mpi_info);
   else if (input->get_dd_mode() == CELL_PASS_RMA) 
-    imc_rma_cell_pass_driver(mesh, imc_state, imc_p, mpi_types, mpi_info);
+    imc_rma_mesh_pass_driver(mesh, imc_state, imc_p, mpi_types, mpi_info);
+  else if (input->get_dd_mode() == REPLICATED) 
+    imc_replicated_driver(mesh, imc_state, imc_p, mpi_types, mpi_info);
+  else
+    cout<<"Driver for DD transport method currently not supported"<<endl;
 
   timers->stop_timer("Total transport");
   

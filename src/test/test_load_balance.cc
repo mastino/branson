@@ -4,11 +4,13 @@
  * \author Alex Long
  * \date   Novemeber 9, 2016
  * \brief  Test load balance function
- * \note   ***COPYRIGHT_GOES_HERE****
+ * \note   Copyright (C) 2017 Los Alamos National Security, LLC.
+ *         All rights reserved
  */
 //---------------------------------------------------------------------------//
 
 #include <iostream>
+#include <mpi.h>
 #include <vector>
 
 #include "../constants.h"
@@ -28,7 +30,6 @@ int main (int argc, char *argv[]) {
   const Info mpi_info;
 
   int rank = mpi_info.get_rank();
-  int n_rank = mpi_info.get_n_rank();
 
   int nfail = 0;
 
@@ -75,12 +76,12 @@ int main (int argc, char *argv[]) {
       }
     }
 
-    load_balance(work, census, n_particles_on_rank, mpi_types, mpi_info);
+    bt_load_balance(work, census, n_particles_on_rank, mpi_types, mpi_info);
 
     uint64_t n_post_balanced_particles = 0;
 
-    for (auto w_itr = work.begin(); w_itr != work.end(); ++w_itr)
-      n_post_balanced_particles += w_itr->get_n_particles();
+    for (auto const &w_itr : work)
+      n_post_balanced_particles += w_itr.get_n_particles();
     n_post_balanced_particles += census.size();
 
     // test work packets, if present
