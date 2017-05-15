@@ -35,7 +35,9 @@
 
 void tally_photon_events(Photon &photon,
   std::map<uint32_t, uint32_t>& scatter_counts,
-  std::map<uint32_t, uint32_t>& cross_counts) {
+  std::map<uint32_t, uint32_t>& cross_counts,
+  std::vector<uint32_t> &global_scatter_counts,
+  std::vector<uint32_t> &global_cross_counts) {
   // tally scatter events
   uint32_t n_scatter = photon.get_n_scatter();
   if (scatter_counts.find(n_scatter) == scatter_counts.end())
@@ -43,19 +45,21 @@ void tally_photon_events(Photon &photon,
   else
     scatter_counts[n_scatter]++;
 
+  global_scatter_counts[photon.get_origin_cell()]+=n_scatter;
+
   // tally crossing events
   uint32_t n_cross = photon.get_n_cross();
   if (cross_counts.find(n_cross) == cross_counts.end())
     cross_counts[n_cross] = 1;
   else
     cross_counts[n_cross]++;
+
+  global_cross_counts[photon.get_origin_cell()]+=n_cross;
 }
 
 Constants::event_type transport_photon_particle_pass( Photon& phtn, Mesh* mesh,
     RNG* rng, double& next_dt, double& exit_E, double& census_E,
-    std::vector<double>& rank_abs_E,
-    std::map<uint32_t, uint32_t>& scatter_counts,
-    std::map<uint32_t, uint32_t>& cross_counts)
+    std::vector<double>& rank_abs_E)
 {
   using Constants::VACUUM; using Constants::REFLECT;
   using Constants::ELEMENT; using Constants::PROCESSOR;
@@ -112,7 +116,6 @@ Constants::event_type transport_photon_particle_pass( Photon& phtn, Mesh* mesh,
     if (phtn.below_cutoff(cutoff_fraction)) {
       rank_abs_E[cell_id] += phtn.get_E();
       active=false;
-      tally_photon_events(phtn, scatter_counts, cross_counts);
       event=KILL;
     }
     // or apply event
@@ -145,13 +148,11 @@ Constants::event_type transport_photon_particle_pass( Photon& phtn, Mesh* mesh,
           exit_E+=phtn.get_E();
           active=false;
           event = EXIT;
-          tally_photon_events(phtn, scatter_counts, cross_counts);
         }
         else phtn.reflect(surface_cross);
       }
       // EVENT TYPE: REACH CENSUS
       else if(dist_to_event == dist_to_census) {
-        tally_photon_events(phtn, scatter_counts, cross_counts);
         phtn.set_distance_to_census(c*next_dt);
         active=false;
         event=CENSUS;
@@ -189,8 +190,12 @@ std::vector<Photon> particle_pass_transport(Source& source,
   double next_dt = imc_state->get_next_dt(); //! Set for census photons
   double dt = imc_state->get_next_dt(); //! For making current photons
 
+  const uint32_t n_global_cell = mesh->get_global_num_cells();
   map<uint32_t, uint32_t> scatter_counts;
   map<uint32_t, uint32_t> cross_counts;
+  vector<uint32_t> global_scatter_counts(n_global_cell, 0);
+  vector<uint32_t> global_cross_counts(n_global_cell, 0);
+  vector<uint32_t> global_source_counts(n_global_cell, 0);
 
   RNG *rng = imc_state->get_rng();
 
@@ -201,8 +206,9 @@ std::vector<Photon> particle_pass_transport(Source& source,
 
   // batch statistics
   uint32_t ibatch = 0;
-  uint32_t n_batch = 0;
+  uint32_t n_batch_processed = 0;
   vector<uint32_t> batch_count;
+  vector<double> batch_times;
 
   // Number of particles to run between MPI communication
   const uint32_t batch_size = imc_parameters->get_batch_size();
@@ -279,7 +285,7 @@ std::vector<Photon> particle_pass_transport(Source& source,
   while (!finished) {
 
     uint32_t n = batch_size;
-    n_batch = 0;
+    n_batch_processed = 0;
 
     //------------------------------------------------------------------------//
     // Transport photons from source and received list
@@ -294,23 +300,32 @@ std::vector<Photon> particle_pass_transport(Source& source,
       else {
         phtn =source.get_photon(rng, dt);
         n_local_sourced++;
+        // set the origin of this cell when sourced
+        phtn.set_origin_cell(phtn.get_cell());
+        global_source_counts[phtn.get_cell()]++;
         from_receive_stack=false;
       }
 
       event = transport_photon_particle_pass(phtn, mesh, rng, next_dt, exit_E,
-        census_E, rank_abs_E, scatter_counts, cross_counts);
+        census_E, rank_abs_E);
 
       switch(event) {
         // this case should never be reached
         case WAIT:
           break;
         case KILL:
+          tally_photon_events(phtn, scatter_counts, cross_counts,
+            global_scatter_counts, global_cross_counts);
           n_complete++;
           break;
         case EXIT:
+          tally_photon_events(phtn, scatter_counts, cross_counts,
+            global_scatter_counts, global_cross_counts);
           n_complete++;
           break;
         case CENSUS:
+          tally_photon_events(phtn, scatter_counts, cross_counts,
+            global_scatter_counts, global_cross_counts);
           census_list.push_back(phtn);
           n_complete++;
           break;
@@ -351,12 +366,13 @@ std::vector<Photon> particle_pass_transport(Source& source,
           break;
       }
       n--;
-      n_batch++;
+      n_batch_processed++;
       if (from_receive_stack) phtn_recv_stack.pop();
     }
     ibatch++;
-    batch_count.push_back(n_batch);
-    n_batch=0;
+    batch_count.push_back(n_batch_processed);
+    batch_times.push_back(t_transport.now());
+    n_batch_processed=0;
 
     //------------------------------------------------------------------------//
     // process photon send and receives
@@ -504,24 +520,60 @@ std::vector<Photon> particle_pass_transport(Source& source,
   imc_state->set_rank_mpi_time(t_mpi.get_time("timestep mpi"));
 
   cout.flush();
+  if (mpi_info.get_rank()==0) {
+    cout<<"----------------------------------------";
+    cout<<"----------------------------------------"<<endl;
+    cout<<"  BEGIN PERFORMANCE PREDICTION DIAGNOSTIC BLOCK"<<endl;
+    cout<<"----------------------------------------";
+    cout<<"----------------------------------------"<<endl;
+    usleep(100);
+    cout.flush();
+  }
+
+  MPI_Barrier(MPI_COMM_WORLD);
+  usleep(100);
+  cout.flush();
+  MPI_Barrier(MPI_COMM_WORLD);
+  cout.flush();
   // print batch counts
+  if (mpi_info.get_rank()==0) {
+    cout<<"### begin batch MPI information block ###"<<endl;
+    cout<<"rank    batch    particles_processed   timestamp(s)"<<endl;
+  }
   for (uint32_t r=0; r<mpi_info.get_n_rank();++r) {
     if (mpi_info.get_rank() == r)
       for (uint32_t i=0; i<batch_count.size();++i) {
-        cout<<"batch rank_"<<mpi_info.get_rank()<<" "<<i<<" "<<
-          batch_count[i]<<endl;
+        cout<<r<<" "<<i<<" "<<
+          batch_count[i]<<" ";
+          cout.precision(14);
+          cout<<batch_times[i]<<endl;
+          cout.precision(6);
       }
+    if (mpi_info.get_rank()==mpi_info.get_n_rank()-1)
+      cout<<"### end batch MPI information block ###"<<endl;
     usleep(100);
     cout.flush();
     MPI_Barrier(MPI_COMM_WORLD);
+    usleep(100);
     cout.flush();
     MPI_Barrier(MPI_COMM_WORLD);
+    usleep(100);
   }
+
 
   cout.flush();
   MPI_Barrier(MPI_COMM_WORLD);
+  usleep(100);
+  cout.flush();
+  MPI_Barrier(MPI_COMM_WORLD);
+
+  MPI_Allreduce(MPI_IN_PLACE, &global_scatter_counts[0], mesh->get_global_num_cells(),
+    MPI_UNSIGNED, MPI_SUM, MPI_COMM_WORLD);
+  MPI_Allreduce(MPI_IN_PLACE, &global_cross_counts[0], mesh->get_global_num_cells(),
+    MPI_UNSIGNED, MPI_SUM, MPI_COMM_WORLD);
 
   // get number of scatters and crossings
+  /*
   double cross_fraction = 0.0;
   for (auto it=cross_counts.begin(); it!=cross_counts.end();++it) {
     cout<<"cross rank_"<<mpi_info.get_rank()<<" "<<it->first<<" "
@@ -536,6 +588,37 @@ std::vector<Photon> particle_pass_transport(Source& source,
     scatter_fraction +=double(it->second)/n_local;
   }
   cout<<"scatter fraction: "<<scatter_fraction<<endl;
+  cout.flush();
+  MPI_Barrier(MPI_COMM_WORLD);
+  */
+
+  usleep(100);
+  cout.flush();
+  MPI_Barrier(MPI_COMM_WORLD);
+
+  // get number of scatters and crossings from particles in each cell
+  // on rank 0, print all cell information
+  if (mpi_info.get_rank()==0) {
+    cout<<"### begin cell information block ###"<<endl;
+    cout<<"cell  n_source  n_scatter  n_cross"<<endl;
+    for (uint32_t i=0; i<n_global_cell;++i) {
+      cout<<i<<" "<<global_source_counts[i]<<" ";
+      cout<<global_cross_counts[i]<<" "<<global_scatter_counts[i]<<endl;
+    }
+    cout<<"### end cell information block ###"<<endl;
+  }
+
+  cout.flush();
+  if (mpi_info.get_rank()==0) {
+    cout<<"----------------------------------------";
+    cout<<"----------------------------------------"<<endl;
+    cout<<"  END PERFORMANCE PREDICTION DIAGNOSTIC BLOCK"<<endl;
+    cout<<"----------------------------------------";
+    cout<<"----------------------------------------"<<endl;
+    usleep(100);
+    cout.flush();
+  }
+
 
   return census_list;
 }

@@ -32,7 +32,10 @@ class Photon
 {
   public:
   //! Constructor
-  Photon() {}
+  Photon() {
+    m_n_scatter=0;
+    m_n_cross=0;
+  }
 
   //! Destructor
   ~Photon(void) {}
@@ -67,6 +70,7 @@ class Photon
   double get_distance_remaining(void) const {return m_life_dx;}
   uint32_t get_n_cross(void) const {return m_n_cross;}
   uint32_t get_n_scatter(void) const {return m_n_scatter;}
+  uint32_t get_origin_cell(void) const {return m_origin_cell;}
 
   //! Print particle information
   void print_info(const uint32_t& rank) const {
@@ -87,6 +91,16 @@ class Photon
   //--------------------------------------------------------------------------//
   // non-const functions                                                      //
   //--------------------------------------------------------------------------//
+
+  //! Increment number of scattering events
+  void increment_scatter(void) {
+    m_n_scatter++;
+  }
+
+  //! Increment number of surface crossing events
+  void increment_cross(void) {
+    m_n_cross++;
+  }
 
   //! Update particle position by moving it some distance
   void move(const double distance) {
@@ -132,6 +146,8 @@ class Photon
     m_pos[2] = pos[2];
   }
 
+  void set_origin_cell(uint32_t origin_cell) {m_origin_cell=origin_cell;}
+
   //! Reflect a photon about a plane aligned with the X, Y, or Z axes
   void reflect(const uint32_t surface_cross) {
     using Constants::X_POS; using Constants::X_NEG;
@@ -150,6 +166,9 @@ class Photon
   private:
   uint32_t m_cell_ID; //!< Cell ID
   uint32_t m_grip_ID; //!< Grip ID of current cell
+  uint32_t m_n_scatter; //!< Number of scatters for particle
+  uint32_t m_n_cross; //!< Number of crosses for particle
+  uint32_t m_origin_cell; //!< Cell of origin
   double m_pos[3]; //!< photon position
   double m_angle[3]; //!< photon angle array
 

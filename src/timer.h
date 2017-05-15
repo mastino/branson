@@ -21,8 +21,18 @@ class Timer
 {
   public:
 
-  Timer(void) {}
+  Timer(void) {
+    t_construction = std::chrono::system_clock::now();
+  }
   ~Timer(void) {}
+
+  //! Get current system time, in seconds
+  double now(void) {
+    double time_seconds =
+      std::chrono::duration_cast<std::chrono::microseconds>(
+      std::chrono::high_resolution_clock::now() - t_construction).count() / 1.0e6;
+    return time_seconds;
+  }
 
   //! Start or continute timer with name
   void start_timer(std::string name) {
@@ -53,6 +63,9 @@ class Timer
   }
 
   private:
+
+  //! Construction time for the timer object
+  std::chrono::high_resolution_clock::time_point t_construction;
 
   //! Starting time for the latest timing instance
   std::chrono::high_resolution_clock::time_point temp_start;

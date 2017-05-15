@@ -65,11 +65,11 @@ class MPI_Types
 
       // instrumented version
       // 4 uint32_t, 9 double
-      int particle_array_of_block_length[3] = { 4, 9};
+      int particle_array_of_block_length[3] = { 6, 9};
 
       // Displacements of each type in the cell
       MPI_Aint particle_array_of_block_displace[2] =
-        {0, 4*sizeof(uint32_t)};
+        {0, 6*sizeof(uint32_t)};
 
       //Type of each memory block
       MPI_Datatype particle_array_of_types[2] = {MPI_UNSIGNED, MPI_DOUBLE};
