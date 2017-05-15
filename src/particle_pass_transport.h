@@ -541,7 +541,7 @@ std::vector<Photon> particle_pass_transport(Source& source,
     cout<<"rank    batch    particles_processed   timestamp(s)"<<endl;
   }
   for (uint32_t r=0; r<mpi_info.get_n_rank();++r) {
-    if (mpi_info.get_rank() == r)
+    if (mpi_info.get_rank() == r) {
       for (uint32_t i=0; i<batch_count.size();++i) {
         cout<<r<<" "<<i<<" "<<
           batch_count[i]<<" ";
@@ -549,8 +549,9 @@ std::vector<Photon> particle_pass_transport(Source& source,
           cout<<batch_times[i]<<endl;
           cout.precision(6);
       }
-    if (mpi_info.get_rank()==mpi_info.get_n_rank()-1)
-      cout<<"### end batch MPI information block ###"<<endl;
+      if (mpi_info.get_rank()==mpi_info.get_n_rank()-1)
+        cout<<"### end batch MPI information block ###"<<endl;
+    }
     usleep(100);
     cout.flush();
     MPI_Barrier(MPI_COMM_WORLD);
